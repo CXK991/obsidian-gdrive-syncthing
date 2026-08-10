@@ -1,4 +1,5 @@
 node_modules/
 main.js
 *.map
-.DS_Storeobsidian-gdrive-syncthing-*.zip
+.DS_Store
+obsidian-gdrive-syncthing-*.zip
