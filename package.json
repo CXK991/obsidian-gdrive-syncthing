@@ -1,6 +1,6 @@
 {
   "name": "obsidian-gdrive-syncthing",
-  "version": "1.0.0",
+  "version": "1.0.9",
   "description": "Obsidian ↔ Google Drive 双向增量同步插件（Syncthing 风格冲突解决）",
   "main": "main.js",
   "private": true,

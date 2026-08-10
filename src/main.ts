@@ -1,8 +1,11 @@
 /**
- * 插件主入口：生命周期、菜单/命令/状态栏与各模块装配。
+ * 插件主入口：生命周期、命令/状态栏与各模块装配。
+ *
+ * 手机端没有底部状态栏，改用常驻弹窗（Notice）实时显示同步进度；
+ * 桌面端保持底部状态栏进度，同步完成时弹窗汇总。
  */
 
-import { Notice, Plugin } from "obsidian";
+import { Notice, Platform, Plugin } from "obsidian";
 import { GDriveClient } from "./gdrive/GDriveClient";
 import { ConflictResolver } from "./sync/ConflictResolver";
 import { IndexManager } from "./sync/IndexManager";
@@ -17,6 +20,9 @@ export default class ObsidianGDriveSyncPlugin extends Plugin {
   private conflictResolver!: ConflictResolver;
   private syncEngine!: SyncEngine;
   private statusBarEl!: HTMLElement;
+  /** 手机端进度弹窗（常驻，同步期间持续更新文本） */
+  private progressNotice: Notice | null = null;
+  private lastProgressNoticeAt = 0;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -36,7 +42,9 @@ export default class ObsidianGDriveSyncPlugin extends Plugin {
       progress: (text) => {
         if (text) {
           this.statusBarEl.setText(`GDrive：${text}`);
+          this.showProgressNotice(text);
         } else {
+          this.hideProgressNotice();
           this.updateStatusBar(this.settings.accessToken ? "idle" : "needs-auth");
         }
       },
@@ -45,14 +53,14 @@ export default class ObsidianGDriveSyncPlugin extends Plugin {
 
     this.addSettingTab(new GDriveSyncSettingTab(this.app, this));
     this.addRibbonIcon("refresh-cw", "GDrive 同步：立即同步", () => {
-      new Notice("已开始 GDrive 同步，请在底部状态栏查看进度");
+      this.showStartNotice();
       this.syncEngine.scheduleSync("点击功能区按钮", 0);
     });
     this.addCommand({
       id: "gdrive-sync-now",
       name: "立即同步到 Google Drive",
       callback: () => {
-        new Notice("已开始 GDrive 同步，请在底部状态栏查看进度");
+        this.showStartNotice();
         this.syncEngine.scheduleSync("执行命令", 0);
       },
     });
@@ -74,6 +82,7 @@ export default class ObsidianGDriveSyncPlugin extends Plugin {
   }
 
   onunload(): void {
+    this.hideProgressNotice();
     this.syncEngine?.dispose();
   }
 
@@ -107,5 +116,30 @@ export default class ObsidianGDriveSyncPlugin extends Plugin {
     };
     const last = this.settings.lastSyncAt > 0 ? new Date(this.settings.lastSyncAt).toLocaleTimeString() : "从未";
     this.statusBarEl.setText(`GDrive：${labels[status]}｜上次 ${last}`);
+  }
+
+  /** 手机端没有状态栏：用常驻弹窗显示进度（800ms 节流，避免弹窗刷屏） */
+  private showProgressNotice(text: string): void {
+    if (!Platform.isMobile) return;
+    const now = Date.now();
+    if (now - this.lastProgressNoticeAt < 800) return;
+    this.lastProgressNoticeAt = now;
+    this.hideProgressNotice();
+    this.progressNotice = new Notice(`GDrive 同步中：${text}`, 0);
+  }
+
+  private hideProgressNotice(): void {
+    if (this.progressNotice) {
+      try {
+        this.progressNotice.hide();
+      } catch {
+        // 弹窗可能已被手动关闭，忽略即可
+      }
+      this.progressNotice = null;
+    }
+  }
+
+  private showStartNotice(): void {
+    new Notice(Platform.isMobile ? "已开始 GDrive 同步，进度将在弹窗中实时显示" : "已开始 GDrive 同步，请在底部状态栏查看进度");
   }
 }

@@ -1,7 +1,7 @@
 {
   "id": "obsidian-gdrive-syncthing",
   "name": "GDrive 双向同步（Syncthing 冲突机制）",
-  "version": "1.0.0",
+  "version": "1.0.9",
   "minAppVersion": "1.4.0",
   "description": "在 Obsidian 与 Google Drive 之间双向增量同步笔记；参考 Syncthing 冲突解决机制，冲突时自动生成 .sync-conflict-* 副本，绝不静默覆盖。",
   "author": "Cagent",
