@@ -6,6 +6,11 @@ import { App, ButtonComponent, Modal, Notice, PluginSettingTab, Setting } from "
 import type ObsidianGDriveSyncPlugin from "../main";
 import { errorMessage } from "../utils";
 
+/** rclone 官方公开的 Google Drive 客户端凭据（免注册 Google Cloud 项目，仅允许回调 http://127.0.0.1:53682/） */
+const RCLONE_CLIENT_ID = "202264815644.apps.googleusercontent.com";
+const RCLONE_CLIENT_SECRET = "X4Z3ca8xfWDb1Voo-F9a7ZxJ";
+const RCLONE_REDIRECT_URI = "http://127.0.0.1:53682/";
+
 export class GDriveSyncSettingTab extends PluginSettingTab {
   constructor(app: App, private readonly plugin: ObsidianGDriveSyncPlugin) {
     super(app, plugin);
@@ -15,6 +20,7 @@ export class GDriveSyncSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     this.renderTutorialSection(containerEl);
+    this.renderRcloneSection(containerEl);
     this.renderOAuthSection(containerEl);
     this.renderSyncSection(containerEl);
     this.renderStatusSection(containerEl);
@@ -47,7 +53,7 @@ export class GDriveSyncSettingTab extends PluginSettingTab {
     addStep("配置 OAuth 同意屏幕（选择 External，并把你的 Google 账号添加为测试用户）：", [
       { label: "打开同意屏幕", url: "https://console.cloud.google.com/apis/credentials/consent" },
     ]);
-    addStep("创建 OAuth 客户端 ID，应用类型选「Web 应用」，重定向 URI 填 http://localhost:8080/ ：", [
+    addStep("创建 OAuth 客户端 ID，应用类型选「Web 应用」，在「已获授权的重定向 URI」中填写与插件下方 Redirect URI 完全一致的地址（默认 http://localhost:8080/ ，注意结尾斜杠必须一模一样）：", [
       { label: "创建凭据", url: "https://console.cloud.google.com/apis/credentials" },
     ]);
     addStep("把 Client ID / Client Secret 填到下方输入框，点「生成授权链接」→ 浏览器授权 → 「用授权码换取令牌」。");
@@ -60,6 +66,39 @@ export class GDriveSyncSettingTab extends PluginSettingTab {
       text: "Google Drive API 文档",
       href: "https://developers.google.com/drive/api/guides/about-sdk",
       attr: { target: "_blank", rel: "noopener" },
+    });
+  }
+
+  // ---------- rclone 公共凭据（免注册备选方案） ----------
+
+  private renderRcloneSection(containerEl: HTMLElement): void {
+    containerEl.createEl("h2", { text: "② 免注册备选方案：rclone 公共凭据（无需 Google Cloud 项目）" });
+    containerEl.createEl("p", {
+      text: "不想创建 Google Cloud 项目？可直接使用 rclone 官方公开的客户端凭据：无需信用卡、无需注册、完全免费。注意：rclone 凭据只允许回调地址 http://127.0.0.1:53682/ —— 若仍使用默认的 http://localhost:8080/ ，Google 授权页会在登录后报 400 错误（That’s an error… malformed）。",
+      cls: "setting-item-description",
+    });
+
+    new Setting(containerEl)
+      .setName("一键填入 rclone 凭据")
+      .setDesc("自动填入 Client ID / Client Secret / Redirect URI 三项，然后点「生成授权链接」即可。")
+      .addButton((button) =>
+        button.setButtonText("一键填入").setCta().onClick(async () => {
+          this.plugin.settings.clientId = RCLONE_CLIENT_ID;
+          this.plugin.settings.clientSecret = RCLONE_CLIENT_SECRET;
+          this.plugin.settings.redirectUri = RCLONE_REDIRECT_URI;
+          await this.plugin.saveSettings();
+          this.display();
+          new Notice("已填入 rclone 公共凭据，请点击「生成授权链接」", 6000);
+        }),
+      );
+
+    containerEl.createEl("p", { text: `Client ID：${RCLONE_CLIENT_ID}`, cls: "setting-item-description" });
+    containerEl.createEl("p", { text: `Client Secret：${RCLONE_CLIENT_SECRET}`, cls: "setting-item-description" });
+    containerEl.createEl("p", { text: `Redirect URI：${RCLONE_REDIRECT_URI}`, cls: "setting-item-description" });
+
+    containerEl.createEl("p", {
+      text: "⚠️ 授权完成后浏览器会跳转到 http://127.0.0.1:53682/?code=… ，页面提示“无法访问此网站”是正常的（本机没有服务监听该端口）。请从浏览器地址栏复制整段跳转地址，把 code= 后面的参数粘贴到「用授权码换取令牌」弹窗中。",
+      cls: "setting-item-description",
     });
   }
   // ---------- OAuth ----------
@@ -134,9 +173,21 @@ export class GDriveSyncSettingTab extends PluginSettingTab {
       new Notice("请先填写 Client ID");
       return;
     }
+    if (!/\.apps\.googleusercontent\.com$/.test(settings.clientId)) {
+      new Notice("❌ Client ID 格式不正确，应以 .apps.googleusercontent.com 结尾", 6000);
+      return;
+    }
+    const redirect = settings.redirectUri.trim();
+    if (!/^https?:\/\/.+/.test(redirect)) {
+      new Notice("❌ Redirect URI 必须是 http:// 或 https:// 开头的完整地址", 6000);
+      return;
+    }
+    if (settings.clientId === RCLONE_CLIENT_ID && redirect !== RCLONE_REDIRECT_URI) {
+      new Notice(`❌ 使用 rclone 公共凭据时，Redirect URI 必须为 ${RCLONE_REDIRECT_URI}，否则 Google 授权页会报 400 错误`, 8000);
+      return;
+    }
     const url = this.plugin.getGDriveClient().createAuthUrl(`obsidian-${Date.now().toString(36)}`);
-    window.open(url, "_blank", "noopener");
-    new Notice("已打开 Google 授权页面。授权完成后浏览器会跳转到 Redirect URI，请复制地址中的 code 参数。");
+    new AuthUrlModal(this.app, url).open();
   }
 
   private exchangeCodeFlow(): void {
@@ -285,6 +336,49 @@ export class GDriveSyncSettingTab extends PluginSettingTab {
           modal.open();
         }),
       );
+  }
+}
+
+/** 展示完整授权链接的模态框（可复制链接、在浏览器中打开，便于排查 400 错误） */
+class AuthUrlModal extends Modal {
+  constructor(
+    app: App,
+    private readonly authUrl: string,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.titleEl.setText("Google 授权链接");
+    const container = this.contentEl;
+    container.createEl("p", {
+      text: "若浏览器出现 400 / redirect_uri_mismatch：请检查 Redirect URI 是否与 Google Cloud Console「已获授权的重定向 URI」完全一致（含尾部斜杠）；使用 rclone 公共凭据时必须为 http://127.0.0.1:53682/ 。",
+    });
+    const urlEl = container.createEl("textarea", { attr: { rows: "5" } }) as HTMLTextAreaElement;
+    urlEl.value = this.authUrl;
+    new ButtonComponent(container)
+      .setButtonText("复制授权链接")
+      .onClick(async () => {
+        try {
+          await navigator.clipboard.writeText(this.authUrl);
+          new Notice("授权链接已复制");
+        } catch {
+          urlEl.select();
+          document.execCommand("copy");
+          new Notice("授权链接已复制");
+        }
+      });
+    new ButtonComponent(container)
+      .setButtonText("在浏览器中打开")
+      .setCta()
+      .onClick(() => {
+        window.open(this.authUrl, "_blank", "noopener");
+        new Notice("已打开 Google 授权页面。授权完成后浏览器会跳转到 Redirect URI，请复制地址中的 code 参数。");
+      });
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
   }
 }
 

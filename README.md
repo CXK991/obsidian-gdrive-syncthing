@@ -75,6 +75,29 @@ npm run build
 > 授权范围使用 `https://www.googleapis.com/auth/drive.file`：插件只能访问自己创建的文件。
 > 同步根目录由插件自动创建，因此目录内的文件均可正常访问，不会触及其它个人文件。
 
+### 免注册备选方案：rclone 公共凭据（无需 Google Cloud 项目 / 无需信用卡）
+
+不想注册 Google Cloud 项目？可以在插件设置面板点击 **「② 免注册备选方案」→ 一键填入 rclone 凭据**，或手动填写：
+
+| 字段 | 值 |
+| --- | --- |
+| Client ID | `202264815644.apps.googleusercontent.com` |
+| Client Secret | `X4Z3ca8xfWDb1Voo-F9a7ZxJ` |
+| Redirect URI | `http://127.0.0.1:53682/`（必须，不能改） |
+
+授权完成后浏览器会跳转到 `http://127.0.0.1:53682/?code=…`，页面打不开是正常的，复制地址栏中 `code=` 后的参数粘贴到插件即可。
+
+## 常见问题
+
+### 授权页报错 `400. That's an error ... malformed` / `redirect_uri_mismatch`
+
+几乎都是 **Redirect URI 与 Google Cloud Console 注册的不一致**（Google 在登录后才校验回调地址）：
+
+- 使用 rclone 公共凭据时，插件默认的 `http://localhost:8080/` 无效，必须改为 `http://127.0.0.1:53682/`（设置面板已内置一键填入）；
+- 使用自己创建的 OAuth 客户端时，请在 Console → 凭据 → 该 OAuth 客户端 → **已获授权的重定向 URI** 中，添加与插件设置完全一致的地址（含结尾斜杠，如 `http://localhost:8080/`）；
+- 确认 Client ID 以 `.apps.googleusercontent.com` 结尾、没有多余空格；
+- 若使用 Google 家长控制 / Workspace 受限账号，请换普通 Gmail 账号或联系管理员。
+
 ## 使用说明
 
 - 功能区点击刷新图标或执行命令 **立即同步到 Google Drive** 手动触发；
