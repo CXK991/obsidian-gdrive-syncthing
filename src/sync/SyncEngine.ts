@@ -57,7 +57,11 @@ export class SyncEngine {
 
   /** 防抖调度一次同步 */
   scheduleSync(reason: string, delayMs = this.context.settings.debounceMs): void {
-    if (this.disposed || this.paused) return;
+    if (this.disposed) return;
+    if (this.paused) {
+      this.context.notice("GDrive 同步已暂停，请先执行命令「暂停 / 恢复 GDrive 同步」恢复后再试", 5000);
+      return;
+    }
     if (this.debounceTimer !== null) window.clearTimeout(this.debounceTimer);
     this.debounceTimer = window.setTimeout(() => {
       this.debounceTimer = null;
@@ -176,6 +180,8 @@ export class SyncEngine {
           `GDrive 同步完成：上传 ${result.uploaded}，下载 ${result.downloaded}，删除 ${result.deletedLocal + result.deletedCloud}，冲突 ${result.conflicts}，跳过 ${result.skipped}${result.errors > 0 ? `，错误 ${result.errors}` : ""}`,
           6000,
         );
+      } else {
+        ctx.notice("GDrive 同步完成：没有检测到需要同步的变动", 5000);
       }
       if (errors.length > 0) ctx.log(`本次同步错误明细：\n${errors.join("\n")}`);
       ctx.log(`同步结束：${result.uploaded} 上传 / ${result.downloaded} 下载 / ${result.conflicts} 冲突，耗时 ${((Date.now() - startedAt) / 1000).toFixed(1)} 秒`);

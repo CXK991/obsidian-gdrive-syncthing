@@ -311,9 +311,10 @@ export class GDriveSyncSettingTab extends PluginSettingTab {
     containerEl.createEl("h2", { text: "同步状态" });
     const settings = this.plugin.settings;
     const lastTime = settings.lastSyncAt > 0 ? new Date(settings.lastSyncAt).toLocaleString() : "从未同步";
+    const runState = this.plugin.getSyncEngine().isPaused ? "已暂停" : "运行中";
     new Setting(containerEl)
       .setName("上次同步")
-      .setDesc(`时间：${lastTime}；结果：${settings.lastSyncStatus || "—"}`)
+      .setDesc(`状态：${runState}；时间：${lastTime}；结果：${settings.lastSyncStatus || "—"}`)
       .addButton((button) =>
         button.setButtonText("立即同步").setCta().onClick(() => {
           this.plugin.getSyncEngine().scheduleSync("设置面板手动触发", 0);
