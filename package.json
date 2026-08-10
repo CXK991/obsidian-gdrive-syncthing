@@ -1,0 +1,21 @@
+{
+  "name": "obsidian-gdrive-syncthing",
+  "version": "1.0.0",
+  "description": "Obsidian ↔ Google Drive 双向增量同步插件（Syncthing 风格冲突解决）",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "typecheck": "tsc -noEmit -skipLibCheck"
+  },
+  "keywords": ["obsidian", "gdrive", "sync", "syncthing"],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.20.2",
+    "obsidian": "^1.5.12",
+    "typescript": "^5.4.5"
+  }
+}

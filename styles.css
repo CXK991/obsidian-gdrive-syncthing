@@ -1,0 +1,15 @@
+/* GDrive 双向同步插件样式 */
+
+.gdrive-sync-tutorial {
+  margin: 8px 0 16px 0;
+  padding-left: 22px;
+}
+
+.gdrive-sync-tutorial li {
+  margin-bottom: 6px;
+  line-height: 1.6;
+}
+
+.gdrive-sync-tutorial a {
+  margin-left: 6px;
+}
