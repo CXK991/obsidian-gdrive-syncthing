@@ -31,6 +31,8 @@ export class SyncEngine {
   private debounceTimer: number | null = null;
   private pollTimer: number | null = null;
   private syncInProgress = false;
+  /** 并发保护：正在创建中的云端目录（relPath → Promise） */
+  private readonly folderCreation = new Map<string, Promise<string>>();
   private pendingRun = false;
   private paused = false;
   private disposed = false;
@@ -159,18 +161,25 @@ export class SyncEngine {
       const totalActions = actions.length;
       ctx.progress(`同步中… 共 ${totalActions} 项操作`);
 
-      for (let i = 0; i < actions.length; i++) {
-        const action = actions[i];
-        if (this.disposed || this.paused) break;
-        try {
-          ctx.progress(`同步中… [${i + 1}/${totalActions}] ${this.actionLabel(action)}`);
-          await this.executeAction(index, action, folderIds, result);
-        } catch (error) {
-          result.errors++;
-          errors.push(`${action.relativePath}：${errorMessage(error)}`);
-          ctx.log(`操作失败 [${action.kind}] ${action.relativePath}：${errorMessage(error)}`);
+      // 并发池：默认 3 个文件同时处理，显著加快首次全量同步
+      const CONCURRENCY = 3;
+      let nextActionIndex = 0;
+      const worker = async (): Promise<void> => {
+        while (!this.disposed && !this.paused) {
+          const i = nextActionIndex++;
+          if (i >= actions.length) return;
+          const action = actions[i];
+          try {
+            ctx.progress(`同步中… [${i + 1}/${totalActions}] ${this.actionLabel(action)}`);
+            await this.executeAction(index, action, folderIds, result);
+          } catch (error) {
+            result.errors++;
+            errors.push(`${action.relativePath}：${errorMessage(error)}`);
+            ctx.log(`操作失败 [${action.kind}] ${action.relativePath}：${errorMessage(error)}`);
+          }
         }
-      }
+      };
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, Math.max(actions.length, 1)) }, () => worker()));
 
       // 清理两侧都不存在的索引条目
       for (const relPath of Object.keys(index.entries)) {
@@ -456,6 +465,19 @@ export class SyncEngine {
     if (!relDir) return this.context.settings.syncRootFolderId;
     const cached = folderIds.get(relDir);
     if (cached) return cached;
+    const pending = this.folderCreation.get(relDir);
+    if (pending) return pending;
+    const promise = this.ensureCloudFolderInner(relDir, folderIds);
+    this.folderCreation.set(relDir, promise);
+    try {
+      return await promise;
+    } finally {
+      this.folderCreation.delete(relDir);
+    }
+  }
+
+  /** 实际创建目录链（被 ensureCloudFolder 的 Promise 缓存保护，避免并发重复创建） */
+  private async ensureCloudFolderInner(relDir: string, folderIds: Map<string, string>): Promise<string> {
     const segments = relDir.split("/");
     let parentId = this.context.settings.syncRootFolderId;
     let prefix = "";
