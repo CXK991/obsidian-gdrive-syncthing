@@ -7,9 +7,15 @@
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-    "typecheck": "tsc -noEmit -skipLibCheck"
+    "typecheck": "tsc -noEmit -skipLibCheck",
+    "deploy": "powershell -NoProfile -ExecutionPolicy Bypass -File deploy.ps1"
   },
-  "keywords": ["obsidian", "gdrive", "sync", "syncthing"],
+  "keywords": [
+    "obsidian",
+    "gdrive",
+    "sync",
+    "syncthing"
+  ],
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.11.30",
