@@ -324,24 +324,37 @@ export class GDriveClient {
     return data.id;
   }
 
-  /** 上传（新建或更新）文件，返回云端元数据 */
+  /**
+   * 上传（新建或更新）文件，返回云端元数据。
+   *
+   * 采用两步法（Google 官方支持，绕开 multipart 格式在不同 WebView 下的解析问题）：
+   * 1. uploadType=media 上传文件内容；
+   * 2. 新建时用普通 JSON 请求设置文件名与父目录（与创建文件夹同一条已验证路径）。
+   */
   async uploadFile(options: { parentId: string; name: string; mimeType: string; data: ArrayBuffer; fileId?: string }): Promise<UploadedFileInfo> {
-    const metadata: Record<string, unknown> = { name: options.name, mimeType: options.mimeType };
-    if (!options.fileId) metadata.parents = [options.parentId];
-    const { body, contentType } = this.buildMultipartBody(metadata, options.data, options.mimeType);
-    const url = options.fileId
-      ? `${API_BASE}/files/${options.fileId}?uploadType=multipart&supportsAllDrives=true`
-      : `${API_BASE}/files?uploadType=multipart&supportsAllDrives=true`;
-    const result = await this.request<DriveFilePayload>(options.fileId ? "PATCH" : "POST", url, {
-      headers: { "Content-Type": contentType },
-      body,
+    const mediaUrl = options.fileId
+      ? `${API_BASE}/files/${options.fileId}?uploadType=media&supportsAllDrives=true`
+      : `${API_BASE}/files?uploadType=media&supportsAllDrives=true`;
+    const mediaResult = await this.request<DriveFilePayload>(options.fileId ? "PATCH" : "POST", mediaUrl, {
+      headers: { "Content-Type": options.mimeType },
+      body: options.data,
     });
+    let id = mediaResult.id;
+    let name = options.name;
+    if (!options.fileId) {
+      const meta = await this.request<DriveFilePayload>("PATCH", `${API_BASE}/files/${id}?supportsAllDrives=true`, {
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: options.name, parents: [options.parentId] }),
+      });
+      id = meta.id ?? id;
+      name = meta.name ?? options.name;
+    }
     return {
-      id: result.id,
-      name: result.name ?? options.name,
-      modifiedTimeMs: result.modifiedTime ? Date.parse(result.modifiedTime) || Date.now() : Date.now(),
-      md5Checksum: result.md5Checksum ?? null,
-      size: result.size != null && result.size !== "" ? Number(result.size) : null,
+      id,
+      name,
+      modifiedTimeMs: mediaResult.modifiedTime ? Date.parse(mediaResult.modifiedTime) || Date.now() : Date.now(),
+      md5Checksum: mediaResult.md5Checksum ?? null,
+      size: mediaResult.size != null && mediaResult.size !== "" ? Number(mediaResult.size) : null,
     };
   }
 
@@ -385,26 +398,5 @@ export class GDriveClient {
     };
   }
 
-  /** 手动构造 multipart/related 上传体（比 FormData 更稳定地满足 Drive API 解析要求） */
-  private buildMultipartBody(metadata: Record<string, unknown>, data: ArrayBuffer, mimeType: string): { body: ArrayBuffer; contentType: string } {
-    const boundary = `obsidian_gdrive_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
-    const encoder = new TextEncoder();
-    const parts: Uint8Array[] = [];
-    const pushText = (text: string): void => {
-      parts.push(encoder.encode(text));
-    };
-    pushText(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`);
-    parts.push(encoder.encode(JSON.stringify(metadata)));
-    pushText(`\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\nContent-Length: ${data.byteLength}\r\n\r\n`);
-    parts.push(new Uint8Array(data));
-    pushText(`\r\n--${boundary}--\r\n`);
-    const totalLength = parts.reduce((sum, part) => sum + part.byteLength, 0);
-    const body = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const part of parts) {
-      body.set(part, offset);
-      offset += part.byteLength;
-    }
-    return { body: body.buffer as ArrayBuffer, contentType: `multipart/related; boundary=${boundary}` };
-  }
+
 }
