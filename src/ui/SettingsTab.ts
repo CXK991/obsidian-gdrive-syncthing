@@ -396,18 +396,37 @@ class AuthCodeModal extends Modal {
     this.titleEl.setText("输入 Google 授权码");
     const container = this.contentEl;
     container.createEl("p", {
-      text: "粘贴授权跳转 URL 中 code 参数的值（URL 形如 http://localhost:8080/?code=…&scope=…）。",
+      text: "直接粘贴浏览器地址栏的整段跳转地址（推荐，自动提取 code），或只粘贴 code= 后面的值。地址形如 http://127.0.0.1:53682/?state=…&code=…",
     });
-    const codeEl = container.createEl("textarea", { attr: { rows: "4", placeholder: "授权码…" } }) as HTMLTextAreaElement;
+    const codeEl = container.createEl("textarea", { attr: { rows: "4", placeholder: "整段跳转地址或授权码…" } }) as HTMLTextAreaElement;
     const redirectEl = container.createEl("input", { attr: { type: "text", placeholder: "Redirect URI" } }) as HTMLInputElement;
     redirectEl.value = this.defaultRedirectUri;
     new ButtonComponent(container)
       .setButtonText("换取令牌")
       .setCta()
       .onClick(() => {
-        const code = codeEl.value.trim();
-        if (!code) {
-          new Notice("请先粘贴授权码");
+        const raw = codeEl.value.trim();
+        if (!raw) {
+          new Notice("请先粘贴授权码或整段跳转地址");
+          return;
+        }
+        let code = raw;
+        if (raw.includes("://")) {
+          try {
+            const parsed = new URL(raw);
+            const extracted = parsed.searchParams.get("code");
+            if (!extracted) {
+              new Notice("❌ 未能从链接中解析出 code 参数，请检查复制的链接是否完整", 6000);
+              return;
+            }
+            code = extracted;
+          } catch {
+            new Notice("❌ 链接格式无法解析，请直接粘贴 code= 后面的值", 6000);
+            return;
+          }
+        }
+        if (!/^[\w./-]+$/.test(code)) {
+          new Notice("❌ 授权码含有多余字符（空格/换行/引号），请只复制 code= 后面的内容", 6000);
           return;
         }
         this.onSubmit(code, redirectEl.value.trim());

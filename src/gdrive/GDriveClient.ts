@@ -146,7 +146,17 @@ export class GDriveClient {
       } catch {
         // 忽略解析失败
       }
-      const reason = (data?.error_description as string) ?? (data?.error as string) ?? `HTTP ${response.status}`;
+      const errorType = (data?.error as string) ?? "";
+      const reason = (data?.error_description as string) ?? errorType ?? `HTTP ${response.status}`;
+      if (errorType === "invalid_grant" || /Bad Request/.test(reason)) {
+        throw new Error("获取令牌失败：授权码无效、已过期或已被使用。请重新点击「生成授权链接」获取新授权码，复制后立即换取令牌");
+      }
+      if (errorType === "invalid_client") {
+        throw new Error("获取令牌失败：Client ID 或 Client Secret 错误，请检查设置");
+      }
+      if (errorType === "redirect_uri_mismatch") {
+        throw new Error("获取令牌失败：Redirect URI 与授权时不一致，请保持两者相同（rclone 凭据使用 http://127.0.0.1:53682/）");
+      }
       throw new Error(`获取令牌失败：${reason}`);
     }
     return (await response.json()) as Record<string, unknown>;
