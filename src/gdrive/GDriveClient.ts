@@ -193,16 +193,17 @@ export class GDriveClient {
     retried = false,
   ): Promise<T> {
     const response = await this.fetchWithAuth(url, { method, body: options.body, headers: options.headers }, retried);
-    if (response.status === 429 && !retried) {
-      await sleep(2000);
-      return this.request<T>(method, url, options, true);
-    }
     if (!response.ok) {
       let body: unknown = null;
       try {
         body = await response.json();
       } catch {
         // 忽略解析失败
+      }
+      if (!retried && (response.status === 429 || this.isQuotaError(body))) {
+        this.log("Google API 配额繁忙，等待 30 秒后自动重试…");
+        await sleep(30_000);
+        return this.request<T>(method, url, options, true);
       }
       throw new GDriveApiError(this.friendlyError(response.status, body), response.status);
     }
@@ -219,6 +220,9 @@ export class GDriveClient {
       case 401:
         return "认证失败：Access Token 无效或已过期";
       case 403:
+        if (message && /quota exceeded|rateLimitExceeded|Queries per minute/i.test(message)) {
+          return "Google Drive 配额繁忙：当前项目每分钟请求数超限（rclone 公共凭据为全球共享）。请稍后重试，或创建自己的 Google Cloud 凭据获得独立配额";
+        }
         return `权限不足：${message ?? "请检查 OAuth 授权范围与 Drive API 是否已启用"}`;
       case 404:
         return "云端资源不存在：文件或目录可能已被移动/删除";
@@ -234,6 +238,12 @@ export class GDriveClient {
       default:
         return message ? `请求失败：${message}` : `请求失败（HTTP ${status}）`;
     }
+  }
+
+  /** 判断是否为 Google API 配额/限流错误（403 Quota exceeded / rateLimitExceeded / 429） */
+  private isQuotaError(body: unknown): boolean {
+    const message = (body as { error?: { message?: string } } | null)?.error?.message ?? "";
+    return /quota exceeded|rateLimitExceeded|userRateLimitExceeded|Queries per minute/i.test(message);
   }
 
   // ---------- Drive 文件操作 ----------

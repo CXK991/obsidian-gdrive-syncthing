@@ -33,6 +33,13 @@ export default class ObsidianGDriveSyncPlugin extends Plugin {
       log: (message) => this.log(message),
       notice: (message, timeout) => new Notice(message, timeout),
       setStatus: (status) => this.updateStatusBar(status),
+      progress: (text) => {
+        if (text) {
+          this.statusBarEl.setText(`GDrive：${text}`);
+        } else {
+          this.updateStatusBar(this.settings.accessToken ? "idle" : "needs-auth");
+        }
+      },
     };
     this.syncEngine = new SyncEngine(context, this.client, this.indexManager, this.conflictResolver);
 

@@ -22,6 +22,8 @@ export interface SyncContext {
   log(message: string): void;
   notice(message: string, timeout?: number): void;
   setStatus(status: SyncStatus): void;
+  /** 实时进度反馈（状态栏等） */
+  progress(text: string): void;
 }
 
 export class SyncEngine {
@@ -135,9 +137,11 @@ export class SyncEngine {
     const result: SyncResult = { uploaded: 0, downloaded: 0, deletedLocal: 0, deletedCloud: 0, conflicts: 0, skipped: 0, errors: 0 };
     try {
       ctx.setStatus("syncing");
+      ctx.progress("同步中… 正在连接 Google Drive");
       ctx.log(`开始同步（原因：${reason}）`);
 
       await this.client.ensureAccessToken();
+      ctx.progress("同步中… 准备云端同步目录");
       const rootFolderId = await this.client.ensureRootFolder(ctx.settings.syncRootName);
       if (ctx.settings.syncRootFolderId !== rootFolderId) {
         ctx.settings.syncRootFolderId = rootFolderId;
@@ -152,10 +156,14 @@ export class SyncEngine {
       const folderIds = cloud.folders;
       const actions = this.indexManager.buildPlan(index, localFiles, cloudByPath);
       const errors: string[] = [];
+      const totalActions = actions.length;
+      ctx.progress(`同步中… 共 ${totalActions} 项操作`);
 
-      for (const action of actions) {
+      for (let i = 0; i < actions.length; i++) {
+        const action = actions[i];
         if (this.disposed || this.paused) break;
         try {
+          ctx.progress(`同步中… [${i + 1}/${totalActions}] ${this.actionLabel(action)}`);
           await this.executeAction(index, action, folderIds, result);
         } catch (error) {
           result.errors++;
@@ -194,6 +202,7 @@ export class SyncEngine {
       ctx.notice(`GDrive 同步失败：${message}`, 8000);
     } finally {
       this.syncInProgress = false;
+      if (!this.disposed) ctx.progress("");
       if (!this.disposed) {
         if (!failed) ctx.setStatus(this.paused ? "paused" : "idle");
         if (this.pendingRun && !this.paused) {
@@ -212,6 +221,24 @@ export class SyncEngine {
     if (this.debounceTimer !== null) {
       window.clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
+    }
+  }
+
+  /** 动作的简短中文标签（用于进度显示） */
+  private actionLabel(action: SyncAction): string {
+    switch (action.kind) {
+      case "upload":
+        return `上传 ${action.relativePath}`;
+      case "download":
+        return `下载 ${action.relativePath}`;
+      case "deleteLocal":
+        return `删除本地 ${action.relativePath}`;
+      case "deleteCloud":
+        return `删除云端 ${action.relativePath}`;
+      case "conflict":
+        return `处理冲突 ${action.relativePath}`;
+      default:
+        return action.relativePath;
     }
   }
 
