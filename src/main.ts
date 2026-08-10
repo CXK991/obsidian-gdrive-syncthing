@@ -45,12 +45,16 @@ export default class ObsidianGDriveSyncPlugin extends Plugin {
 
     this.addSettingTab(new GDriveSyncSettingTab(this.app, this));
     this.addRibbonIcon("refresh-cw", "GDrive 同步：立即同步", () => {
+      new Notice("已开始 GDrive 同步，请在底部状态栏查看进度");
       this.syncEngine.scheduleSync("点击功能区按钮", 0);
     });
     this.addCommand({
       id: "gdrive-sync-now",
       name: "立即同步到 Google Drive",
-      callback: () => this.syncEngine.scheduleSync("执行命令", 0),
+      callback: () => {
+        new Notice("已开始 GDrive 同步，请在底部状态栏查看进度");
+        this.syncEngine.scheduleSync("执行命令", 0);
+      },
     });
     this.addCommand({
       id: "gdrive-sync-toggle-pause",

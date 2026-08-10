@@ -327,34 +327,55 @@ export class GDriveClient {
   /**
    * 上传（新建或更新）文件，返回云端元数据。
    *
-   * 采用两步法（Google 官方支持，绕开 multipart 格式在不同 WebView 下的解析问题）：
-   * 1. uploadType=media 上传文件内容；
-   * 2. 新建时用普通 JSON 请求设置文件名与父目录（与创建文件夹同一条已验证路径）。
+   * 采用 Google 官方 resumable 两段式上传，最大限度规避不同 WebView 的兼容问题：
+   * 1. 第一步：用与「创建文件夹」完全相同的 JSON 请求初始化上传会话（返回 Location 上传地址）；
+   * 2. 第二步：把文件内容 PUT 到 Google 返回的上传地址（URL 由 Google 生成，内容不会被误解析）。
+   * parents 只在新建时的初始化请求中设置（Google 禁止在更新请求中直接写 parents）。
    */
   async uploadFile(options: { parentId: string; name: string; mimeType: string; data: ArrayBuffer; fileId?: string }): Promise<UploadedFileInfo> {
-    const mediaUrl = options.fileId
-      ? `${API_BASE}/files/${options.fileId}?uploadType=media&supportsAllDrives=true`
-      : `${API_BASE}/files?uploadType=media&supportsAllDrives=true`;
-    const mediaResult = await this.request<DriveFilePayload>(options.fileId ? "PATCH" : "POST", mediaUrl, {
+    const metadata: Record<string, unknown> = { name: options.name, mimeType: options.mimeType };
+    if (!options.fileId) metadata.parents = [options.parentId];
+    const initUrl = options.fileId
+      ? `${API_BASE}/files/${options.fileId}?uploadType=resumable&supportsAllDrives=true`
+      : `${API_BASE}/files?uploadType=resumable&supportsAllDrives=true`;
+    const initResponse = await this.fetchWithAuth(initUrl, {
+      method: options.fileId ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(metadata),
+    });
+    if (!initResponse.ok) {
+      let body: unknown = null;
+      try {
+        body = await initResponse.json();
+      } catch {
+        // 忽略解析失败
+      }
+      throw new GDriveApiError(this.friendlyError(initResponse.status, body), initResponse.status);
+    }
+    const location = initResponse.headers.get("Location");
+    if (!location) throw new Error("Google 未返回上传会话地址（缺少 Location 头），请重试");
+
+    const uploadResponse = await this.fetchWithAuth(location, {
+      method: "PUT",
       headers: { "Content-Type": options.mimeType },
       body: options.data,
     });
-    let id = mediaResult.id;
-    let name = options.name;
-    if (!options.fileId) {
-      const meta = await this.request<DriveFilePayload>("PATCH", `${API_BASE}/files/${id}?supportsAllDrives=true`, {
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: options.name, parents: [options.parentId] }),
-      });
-      id = meta.id ?? id;
-      name = meta.name ?? options.name;
+    if (!uploadResponse.ok) {
+      let body: unknown = null;
+      try {
+        body = await uploadResponse.json();
+      } catch {
+        // 忽略解析失败
+      }
+      throw new GDriveApiError(this.friendlyError(uploadResponse.status, body), uploadResponse.status);
     }
+    const result = (await uploadResponse.json()) as DriveFilePayload;
     return {
-      id,
-      name,
-      modifiedTimeMs: mediaResult.modifiedTime ? Date.parse(mediaResult.modifiedTime) || Date.now() : Date.now(),
-      md5Checksum: mediaResult.md5Checksum ?? null,
-      size: mediaResult.size != null && mediaResult.size !== "" ? Number(mediaResult.size) : null,
+      id: result.id,
+      name: result.name ?? options.name,
+      modifiedTimeMs: result.modifiedTime ? Date.parse(result.modifiedTime) || Date.now() : Date.now(),
+      md5Checksum: result.md5Checksum ?? null,
+      size: result.size != null && result.size !== "" ? Number(result.size) : null,
     };
   }
 

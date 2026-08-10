@@ -318,6 +318,7 @@ export class GDriveSyncSettingTab extends PluginSettingTab {
       .setDesc(`状态：${runState}；时间：${lastTime}；结果：${settings.lastSyncStatus || "—"}`)
       .addButton((button) =>
         button.setButtonText("立即同步").setCta().onClick(() => {
+          new Notice("已开始 GDrive 同步，请在底部状态栏查看进度");
           this.plugin.getSyncEngine().scheduleSync("设置面板手动触发", 0);
         }),
       );
