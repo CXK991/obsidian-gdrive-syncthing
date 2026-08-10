@@ -4,6 +4,7 @@
 
 import { App, ButtonComponent, Modal, Notice, PluginSettingTab, Setting } from "obsidian";
 import type ObsidianGDriveSyncPlugin from "../main";
+import { SYNC_LOG_PATH } from "../sync/SyncEngine";
 import { errorMessage } from "../utils";
 
 /** rclone 官方公开的 Google Drive 客户端凭据（免注册 Google Cloud 项目，仅允许回调 http://127.0.0.1:53682/） */
@@ -320,6 +321,14 @@ export class GDriveSyncSettingTab extends PluginSettingTab {
           this.plugin.getSyncEngine().scheduleSync("设置面板手动触发", 0);
         }),
       );
+    new Setting(containerEl)
+      .setName("同步日志")
+      .setDesc("查看最近同步的详细结果与错误原因（排查问题用）。")
+      .addButton((button) =>
+        button.setButtonText("查看日志").onClick(() => {
+          new SyncLogModal(this.app).open();
+        }),
+      );
   }
 
   // ---------- 危险操作 ----------
@@ -376,6 +385,58 @@ class AuthUrlModal extends Modal {
         window.open(this.authUrl, "_blank", "noopener");
         new Notice("已打开 Google 授权页面。授权完成后浏览器会跳转到 Redirect URI，请复制地址中的 code 参数。");
       });
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
+/** 同步日志查看/复制/清空 */
+class SyncLogModal extends Modal {
+  onOpen(): void {
+    this.titleEl.setText("GDrive 同步日志");
+    const container = this.contentEl;
+    const textarea = container.createEl("textarea", { attr: { rows: "18", readonly: "true", placeholder: "暂无日志。执行一次同步后，这里会显示每个文件的上传/下载/错误明细。" } }) as HTMLTextAreaElement;
+    textarea.value = "加载中…";
+    void this.loadLog(textarea);
+    new ButtonComponent(container)
+      .setButtonText("复制全部")
+      .onClick(async () => {
+        try {
+          await navigator.clipboard.writeText(textarea.value);
+          new Notice("日志已复制");
+        } catch {
+          textarea.select();
+          document.execCommand("copy");
+          new Notice("日志已复制");
+        }
+      });
+    new ButtonComponent(container)
+      .setButtonText("清空日志")
+      .setWarning()
+      .onClick(async () => {
+        try {
+          await this.app.vault.adapter.remove(SYNC_LOG_PATH);
+          textarea.value = "（已清空）";
+          new Notice("日志已清空");
+        } catch {
+          new Notice("清空失败：日志可能不存在");
+        }
+      });
+  }
+
+  private async loadLog(textarea: HTMLTextAreaElement): Promise<void> {
+    try {
+      const adapter = this.app.vault.adapter;
+      if (await adapter.exists(SYNC_LOG_PATH)) {
+        textarea.value = await adapter.read(SYNC_LOG_PATH);
+      } else {
+        textarea.value = "暂无日志。执行一次同步后，这里会显示每个文件的上传/下载/错误明细。";
+      }
+    } catch (error) {
+      textarea.value = `读取日志失败：${errorMessage(error)}`;
+    }
   }
 
   onClose(): void {

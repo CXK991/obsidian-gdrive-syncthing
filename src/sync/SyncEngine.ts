@@ -15,6 +15,8 @@ import { basename, dirname, errorMessage, mimeForName } from "../utils";
 import { ConflictResolver } from "./ConflictResolver";
 import { INDEX_PATH, IndexManager } from "./IndexManager";
 
+export const SYNC_LOG_PATH = ".obsidian/gdrive-sync-log.txt";
+
 export interface SyncContext {
   app: App;
   settings: GDriveSyncSettings;
@@ -192,6 +194,10 @@ export class SyncEngine {
       await ctx.saveSettings();
 
       const total = result.uploaded + result.downloaded + result.deletedLocal + result.deletedCloud + result.conflicts + result.skipped;
+      await this.appendLog(
+        `同步完成：上传 ${result.uploaded}，下载 ${result.downloaded}，删除 ${result.deletedLocal + result.deletedCloud}，冲突 ${result.conflicts}，跳过 ${result.skipped}，错误 ${result.errors}` +
+          (errors.length > 0 ? `\n错误明细：\n${errors.join("\n")}` : ""),
+      );
       if (total > 0 || result.errors > 0) {
         ctx.notice(
           `GDrive 同步完成：上传 ${result.uploaded}，下载 ${result.downloaded}，删除 ${result.deletedLocal + result.deletedCloud}，冲突 ${result.conflicts}，跳过 ${result.skipped}${result.errors > 0 ? `，错误 ${result.errors}` : ""}`,
@@ -208,6 +214,7 @@ export class SyncEngine {
       const needsAuth = Boolean((error as { needsAuth?: boolean })?.needsAuth);
       ctx.setStatus(needsAuth ? "needs-auth" : "error");
       ctx.log(`同步失败：${message}`);
+      await this.appendLog(`同步失败：${message}`);
       ctx.notice(`GDrive 同步失败：${message}`, 8000);
     } finally {
       this.syncInProgress = false;
@@ -230,6 +237,20 @@ export class SyncEngine {
     if (this.debounceTimer !== null) {
       window.clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
+    }
+  }
+
+  /** 追加一行同步日志（保留最近 200 行） */
+  private async appendLog(text: string): Promise<void> {
+    const adapter = this.context.app.vault.adapter;
+    try {
+      const timestamp = new Date().toLocaleString();
+      const line = `[${timestamp}] ${text}`;
+      const existing = (await adapter.exists(SYNC_LOG_PATH)) ? await adapter.read(SYNC_LOG_PATH) : "";
+      const kept = existing.split(/\r?\n/).slice(-200).join("\n");
+      await adapter.write(SYNC_LOG_PATH, kept + (kept ? "\n" : "") + line + "\n");
+    } catch (error) {
+      this.context.log(`写入同步日志失败：${errorMessage(error)}`);
     }
   }
 
